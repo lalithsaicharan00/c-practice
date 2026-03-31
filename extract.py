@@ -7,6 +7,8 @@ import time
 import random
 import concurrent.futures
 import os
+from requests import Session
+from http.cookiejar import MozillaCookieJar
 
 def extract_video_id(url):
     """Extract YouTube video ID from various URL formats."""
@@ -22,9 +24,10 @@ def extract_video_id(url):
     return None
 
 class YouTubeTranscriptProcessor:
-    def __init__(self, input_filename, output_filename):
+    def __init__(self, input_filename, output_filename, cookie_filename):
         self.input_filename = input_filename
         self.output_filename = output_filename
+        self.cookie_filename = cookie_filename # Added cookie file reference
         self.processed_video_ids = set()
         self.videos_processed = 0
         self.max_retries = 3
@@ -36,14 +39,18 @@ class YouTubeTranscriptProcessor:
         for attempt in range(self.max_retries + 1):
             try:
                 def _fetch_task():
-                    api = YouTubeTranscriptApi()
-                    transcript_data = api.fetch(video_id, languages=['en'])
-                    return transcript_data
+                    jar = MozillaCookieJar(self.cookie_filename)
+                    jar.load()
+                    http_client = Session()
+                    http_client.cookies = jar
+                    api = YouTubeTranscriptApi(http_client=http_client)
+                    return api.fetch(video_id, languages=['en'])
 
                 future = self.executor.submit(_fetch_task)
                 transcript_data = future.result(timeout=30)
                 
-                texts = [snippet.text for snippet in transcript_data.snippets]
+                # Extract text from snippets
+                texts = [snippet.text for snippet in transcript_data]
                 return " ".join(texts).replace('\n', ' ')
                 
             except Exception as e:
@@ -150,11 +157,6 @@ class YouTubeTranscriptProcessor:
                     delay = random.uniform(10, 20)
                     print(f"Waiting {delay:.2f} seconds before next request...")
                     time.sleep(delay)
-                    
-                    if self.videos_processed % 10 == 0:
-                        batch_pause = random.uniform(120, 180)
-                        print(f"\n--- Processed {self.videos_processed} videos. Batch pause for {batch_pause:.2f}s... ---\n")
-                        time.sleep(batch_pause)
 
         # Cleanly shutdown executor
         self.executor.shutdown(wait=False)
@@ -162,7 +164,8 @@ class YouTubeTranscriptProcessor:
 
 if __name__ == "__main__":
     input_txt = "1.psychology-study-guide-YouTube_Video_Links.txt"
-    output_txt = "1.psychology-study-guide-YouTube_Video_Transcripts.txt"
+    output_txt = "1.psychology-study-guide-YouTube_Video_Transcripts_part_3.txt"
+    cookie_txt = "cookies.txt" # Make sure your Netscape cookie file is saved as this!
     
-    processor = YouTubeTranscriptProcessor(input_txt, output_txt)
+    processor = YouTubeTranscriptProcessor(input_txt, output_txt, cookie_txt)
     processor.process_videos()
